@@ -17,8 +17,8 @@
 //
 // Metriche
 //
-volatile int _nMain_CanBus_CountLoopSec = 0;
-volatile int _nMain_CanBus_MetricLoopSec = 0;
+volatile int _nMain_Primary_CountLoopSec = 0;
+volatile int _nMain_Primary_MetricLoopSec = 0;
 //
 // Task
 //
@@ -50,16 +50,17 @@ void setup()
   //
   // Analogic resolution
   //
-  analogReadResolution(10);
-  analogWriteResolution(10);
+  //analogReadResolution(10);
+  //analogWriteResolution(10);
   //
   // Inizializzo i vari servizi
   //
-  CanBus_Setup();
-   //
+  //CanBus_Setup();
+  Sensor_Setup();
+  //
   // Add other LOOP to scheduling.
   //
-  Scheduler.startLoop(loop_Task);
+  //Scheduler.startLoop(loop_Task);
   //
   // Add DEBUG to scheduling.
   //
@@ -76,21 +77,18 @@ void setup()
 // Loop principale, gestisce il CAN-BUS
 //###########################################################################
 //
-// Condivido il controllo dello stato
-//
-volatile bool _bEngineMapLaunch = false;
-volatile bool _bValvolaOpen = false;
-
-//
 // the loop routine runs over and over again forever:
 //
 void loop()
 {
-  CanBus_Loop();
+  //
+  // Controllo gli input per calcolare i tempi di Ign e Inj
+  //
+  Sensor_Loop();
   //
   // Incrementa contatore per metriche
   //
-  _nMain_CanBus_CountLoopSec++;
+  _nMain_Primary_CountLoopSec++;
   //
   // Tempo ad altro
   //
@@ -103,6 +101,10 @@ void loop()
 
 void loop_Task()
 {
+  //
+  // Invio e ricevo messaggi
+  //
+  //CanBus_Loop();
   //
   // Incrementa contatore per metriche
   //
@@ -125,16 +127,15 @@ void loop_Metriche()
   //
   int nSamplingMillisec = 1000;
 
-  _nMain_CanBus_MetricLoopSec = _nMain_CanBus_CountLoopSec * (1000 / nSamplingMillisec);
-  _nMain_CanBus_CountLoopSec = 0;
+  _nMain_Primary_MetricLoopSec = _nMain_Primary_CountLoopSec * (1000 / nSamplingMillisec);
+  _nMain_Primary_CountLoopSec = 0;
 
   _nMain_Task_MetricLoopSec = _nMain_Task_CountLoopSec * (1000 / nSamplingMillisec);
   _nMain_Task_CountLoopSec = 0;
   //
   // Stampa le metriche
   //
-  if (DEBUG_PRINT_MAIN)
-    mainPintMetrics();
+  mainPintMetrics();
   //
   // Pausa e Tempo ad altro
   //
@@ -151,8 +152,8 @@ void mainPintMetrics()
   Serial.println("-----------------------------------------------------------------");
   Serial.println("--- MAIN Metric -------------------------------------------------");
 
-  Serial.print("| CanBus loop/sec=");
-  Serial.print(_nMain_CanBus_MetricLoopSec);
+  Serial.print("| Primary loop/sec=");
+  Serial.print(_nMain_Primary_MetricLoopSec);
 
   Serial.print("\t| Task loop/sec=");
   Serial.print(_nMain_Task_MetricLoopSec);
