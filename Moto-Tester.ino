@@ -31,6 +31,8 @@ const bool DEBUG_PRINT_MAIN = false;
 const bool DEBUG_PRINT_CANBUS = false;
 const bool DEBUG_PRINT_SENSOR = true;
 
+const bool DEBUG_TEST_SIM = false;
+
 #define Main_Debug(m) ({if (DEBUG_PRINT_MAIN) Serial.print(m);})
 #define Main_DebugLine(m) ({if (DEBUG_PRINT_MAIN) Serial.println(m);})
 

@@ -1,28 +1,37 @@
+//
+// Modulo di controllo della lettura del CAN-BUS
+//
+#ifndef INCLUDE_DIP_RGB 1
+  #define INCLUDE_DIP_RGB 1
+  #include <ArduinoGraphics.h>
+  #include <Arduino_MKRRGB.h>
+#endif
+
 volatile bool _sensorInitDone = false;
 //
 // Metriche
 //
 volatile unsigned long _sensorPrintTime = 0;
-volatile unsigned long _sensorLedTime = 0;
+volatile unsigned long _sensorTestTime = 0;
+
+volatile unsigned long _displyTime = 0;
+volatile int _displyColumn = 0;
+
+const int DISPLAY_TRACK_TIME  = 1000;
 //
 // CONST
 //
 // Accensione
 // 
-const int MKRCAN_IN_IGN_ORR  = 6;
-const int MKRCAN_IN_IGN_VER = 7;
+const int MKRCAN_IN_IGN_ORR  = 0;
+const int MKRCAN_IN_IGN_VER = 1;
 //
 // Iniezione
 //
 const int MKRCAN_IN_INJ_ORR  = 4;
 const int MKRCAN_IN_INJ_VER = 5;
 //
-// Rele
-//
-const int MKRCAN_RELE_1  = 1;
-const int MKRCAN_RELE_2 = 2;
-//
-// Private
+// in Interrupt
 //
 volatile unsigned long _sensorStartIgnOrrMicrosec = 0;
 volatile unsigned long _sensorCicleIgnOrrMicrosec = 0;
@@ -50,6 +59,14 @@ volatile unsigned long _sensorIrqIgnOrrCount = 0;
 volatile unsigned long _sensorIrqIgnVerCount = 0;
 volatile unsigned long _sensorIrqInjOrrCount = 0;
 volatile unsigned long _sensorIrqInjVerCount = 0;
+
+volatile unsigned long _sensorCicleRefTimeMicrosec = 0;
+volatile unsigned long _sensorCicleRefValueMicrosec = 0;
+
+volatile unsigned long _sensorOffCycleIgnOrrCount = 0;
+volatile unsigned long _sensorOffCycleIgnVerCount = 0;
+volatile unsigned long _sensorOffCycleInjOrrCount = 0;
+volatile unsigned long _sensorOffCycleInjVerCount = 0;
 //
 // Setup
 //
@@ -60,25 +77,26 @@ void Sensor_Setup()
   //
   // INPUT_PULLUP
   //
-  pinMode(MKRCAN_IN_IGN_ORR, INPUT);
-  pinMode(MKRCAN_IN_IGN_VER, INPUT);
-  pinMode(MKRCAN_IN_INJ_ORR, INPUT);
-  pinMode(MKRCAN_IN_INJ_VER, INPUT);
+  pinMode(MKRCAN_IN_IGN_ORR, INPUT_PULLUP);
+  pinMode(MKRCAN_IN_IGN_VER, INPUT_PULLUP);
+  pinMode(MKRCAN_IN_INJ_ORR, INPUT_PULLUP);
+  pinMode(MKRCAN_IN_INJ_VER, INPUT_PULLUP);
 
-  pinMode(MKRCAN_RELE_1, OUTPUT);
-  pinMode(MKRCAN_RELE_2, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
-
-  digitalWrite(MKRCAN_RELE_1, LOW);
-  digitalWrite(MKRCAN_RELE_2, LOW);
   digitalWrite(LED_BUILTIN, LOW); 
   //
   // Interupt
   //
-  attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_IGN_ORR), Interrupt_IgnOrr, RISING);
-  attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_IGN_VER), Interrupt_IgnVer, RISING);
+  attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_IGN_ORR), Interrupt_IgnOrr, FALLING);
+  attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_IGN_VER), Interrupt_IgnVer, FALLING);
   attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_INJ_ORR), Interrupt_InjOrr, CHANGE);
   attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_INJ_VER), Interrupt_InjVer, CHANGE);
+
+  //
+  // Display RGB
+  //
+  MATRIX.begin();
+  MATRIX.brightness(10);
   //
   // Setup finito
   //
@@ -107,6 +125,13 @@ void Interrupt_IgnOrr()
   if (now > _sensorStartIgnOrrMicrosec)
   {
     _sensorCicleIgnOrrMicrosec = now - _sensorStartIgnOrrMicrosec;
+    //
+    // Calcolo riferimento e ritorna se in ciclo.
+    //
+    bool onCicle = CalcoloCicloRiferimento(_sensorCicleIgnOrrMicrosec);
+
+    if (!onCicle)
+      _sensorOffCycleIgnOrrCount++;
   }
   
   _sensorStartIgnOrrMicrosec = now;
@@ -139,6 +164,13 @@ void Interrupt_IgnVer()
   if (now > _sensorStartIgnVerMicrosec)
   {
     _sensorCicleIgnVerMicrosec = now - _sensorStartIgnVerMicrosec;
+    //
+    // Calcolo riferimento e ritorna se in ciclo.
+    //
+    bool onCicle = CalcoloCicloRiferimento(_sensorCicleIgnVerMicrosec);
+
+    if (!onCicle)
+      _sensorOffCycleIgnVerCount++;
   }
 
   _sensorStartIgnVerMicrosec = now;
@@ -166,14 +198,14 @@ void Interrupt_InjOrr()
   //
   // Per iniezzione misuro i tempo di apertura
   //
-  if (status == HIGH)
+  if (status == LOW)
   {
     _sensorOnInjOrrMicrosec = now;
   }
   else
   {
     //
-    // LOW status
+    // HIGH status
     //
     _sensorOffInjOrrMicrosec = now; 
     //
@@ -191,6 +223,13 @@ void Interrupt_InjOrr()
     if (now > _sensorStartInjOrrMicrosec)
     {
       _sensorCicleInjOrrMicrosec = now - _sensorStartInjOrrMicrosec;
+      //
+      // Calcolo riferimento e ritorna se in ciclo.
+      //
+      bool onCicle = CalcoloCicloRiferimento(_sensorCicleInjOrrMicrosec);
+
+      if (!onCicle)
+        _sensorOffCycleInjOrrCount++;
     }
 
     _sensorStartInjOrrMicrosec = now;    
@@ -215,14 +254,14 @@ void Interrupt_InjVer()
   //
   // Per iniezzione misuro i tempo di apertura
   //
-  if (status == HIGH)
+  if (status == LOW)
   {
     _sensorOnInjVerMicrosec = now;
   }
   else
   {
     //
-    // LOW status
+    // HIGH status
     //
     _sensorOffInjVerMicrosec = now; 
     //
@@ -240,6 +279,13 @@ void Interrupt_InjVer()
     if (now > _sensorStartInjVerMicrosec)
     {
       _sensorCicleInjVerMicrosec = now - _sensorStartInjVerMicrosec;
+      //
+      // Calcolo riferimento e ritorna se in ciclo.
+      //
+      bool onCicle = CalcoloCicloRiferimento(_sensorCicleInjVerMicrosec);
+
+      if (!onCicle)
+        _sensorOffCycleInjVerCount++;     
     }
   
     _sensorStartInjVerMicrosec = now;
@@ -256,6 +302,40 @@ void Interrupt_InjVer()
 void Sensor_Loop()
 {
   //
+  // Test
+  //
+  if (DEBUG_TEST_SIM && (millis() - _sensorTestTime > 300))
+  {
+    _sensorTestTime = millis();
+
+    _sensorCicleRefValueMicrosec = 1000;
+    _sensorCicleIgnOrrMicrosec = random(750, 1550);
+    _sensorCicleIgnVerMicrosec = random(750, 1550);
+    _sensorCicleInjOrrMicrosec = random(750, 1550);
+    _sensorCicleInjVerMicrosec = random(750, 1550);
+
+    if (_sensorCicleIgnOrrMicrosec > _sensorCicleRefValueMicrosec * 1.5 )
+      _sensorOffCycleIgnOrrCount++;
+
+    if (_sensorCicleIgnVerMicrosec > _sensorCicleRefValueMicrosec * 1.5 )
+      _sensorOffCycleIgnVerCount++;
+
+    if (_sensorCicleInjOrrMicrosec > _sensorCicleRefValueMicrosec * 1.5 )
+      _sensorOffCycleInjOrrCount++;
+
+    if (_sensorCicleInjVerMicrosec > _sensorCicleRefValueMicrosec * 1.5 )
+      _sensorOffCycleInjVerCount++;
+  }
+  
+  //
+  // Valori mantenuti tra loop diversi
+  // Valori letti al loop precedente
+  //
+  static int stOffCycleIgnOrr = 0;
+  static int stOffCycleIgnVer = 0;
+  static int stOffCycleInjOrr = 0;
+  static int stOffCycleInjVer = 0;
+  //
   // Esco se non inizializzato
   //
   if (! _sensorInitDone) exit;
@@ -264,18 +344,81 @@ void Sensor_Loop()
   //
   unsigned long now = millis();
   //
-  // Calcola fase
+  // Gestisco display
   //
+  if( now - _displyTime > DISPLAY_TRACK_TIME)
+  {
+    _displyTime = now;
+    //
+    // Calcolo se nell'ultimo secondo è andato fuori ciclo
+    //
+    bool offCycleIgnOrr = (_sensorOffCycleIgnOrrCount > stOffCycleIgnOrr);
+    stOffCycleIgnOrr = _sensorOffCycleIgnOrrCount;
 
-  // if( now - _sensorLedTime > 1)
-  // {
-  //   _sensorLedTime = now;
-  //   //
-  //   // Segnale LED
-  //   //
-  //   PinStatus statusIgnOrr = digitalRead(MKRCAN_IN_IGN_ORR);
-  //   digitalWrite(LED_BUILTIN, statusIgnOrr);
-  // }
+    bool offCycleIgnVer = (_sensorOffCycleIgnVerCount > stOffCycleIgnVer);
+    stOffCycleIgnVer = _sensorOffCycleIgnVerCount;
+
+    bool offCycleInjOrr = (_sensorOffCycleInjOrrCount > stOffCycleInjOrr);
+    stOffCycleInjOrr = _sensorOffCycleInjOrrCount;
+
+    bool offCycleInjVer = (_sensorOffCycleInjVerCount > stOffCycleInjVer);
+    stOffCycleInjVer = _sensorOffCycleInjVerCount;
+
+    //
+    // Draw display
+    //
+    MATRIX.beginDraw();
+    //
+    // Tracce completamente disegnata BLU con pallino ROSSO
+    //
+    for (int x = 0; x < 12; x++)
+    {
+      MATRIX.set(x, 0, x == _displyColumn ? 255 : 0,
+                       x == _displyColumn ? 0 : 0,
+                       x == _displyColumn ? 0 : 255);
+
+    }
+    //
+    // Tracce incrementali pallino VERDE, errore ROSSO
+    //
+    int prevPoint = _displyColumn == 0 ? 11 : _displyColumn - 1;
+    uint8_t prevColorR = 0;
+    uint8_t prevColorG = 0;
+    uint8_t prevColorB = 0;
+    //
+    // Canale IgnOrr
+    //
+    prevColorR = offCycleIgnOrr ? 255 : 0;
+    MATRIX.set(prevPoint, 3, prevColorR, prevColorG, prevColorB);
+    MATRIX.set(_displyColumn, 3, 0, 255, 0);
+    //
+    // Canale IgnVer
+    //
+    prevColorR = offCycleIgnVer ? 255 : 0;
+    MATRIX.set(prevPoint, 4, prevColorR, prevColorG, prevColorB);
+    MATRIX.set(_displyColumn, 4, 0, 255, 0);
+    //
+    // Canale InjOrr
+    //
+    prevColorR = offCycleInjOrr ? 255 : 0;
+    MATRIX.set(prevPoint, 5, prevColorR, prevColorG, prevColorB);
+    MATRIX.set(_displyColumn, 5, 0, 255, 0);
+    //
+    // Canale InjVer
+    //
+    prevColorR = offCycleInjVer ? 255 : 0;
+    MATRIX.set(prevPoint, 6, prevColorR, prevColorG, prevColorB);
+    MATRIX.set(_displyColumn, 6, 0, 255, 0);
+
+    MATRIX.endDraw();
+    //
+    // Prossima colonna
+    //
+    if (_displyColumn < 11)
+      _displyColumn++;
+    else
+      _displyColumn = 0;
+  }
 
   // ----------------------------------------------
   // Prescaler PRINT ogni 500 millisec
@@ -290,6 +433,31 @@ void Sensor_Loop()
     sensorPrintDebug();
   }
 
+}
+
+
+bool CalcoloCicloRiferimento(unsigned long valueMillisec)
+{
+  //
+  // Microsecondi corrente
+  //
+  unsigned long now = micros();
+  //
+  // Calcolo riferimento. Reset ogni ciclo e mezzo
+  //
+  if (_sensorCicleRefTimeMicrosec > (now - _sensorCicleRefValueMicrosec * 1.5))
+  {
+    _sensorCicleRefTimeMicrosec = now;
+    _sensorCicleRefValueMicrosec = valueMillisec;
+  }
+  else
+  {
+    _sensorCicleRefValueMicrosec = min(_sensorCicleRefValueMicrosec, valueMillisec);
+  }
+  //
+  // Ritorna true se in ciclo
+  //
+  return (valueMillisec < _sensorCicleRefValueMicrosec * 1.5);
 }
 
 
@@ -333,6 +501,22 @@ void sensorPrintDebug()
 
   Serial.print("\t| IgnInjVer usec=");
   Serial.print(_sensorDeltaIgnVerMicrosec);
+
+  Serial.println("\t|");
+
+ Serial.println("--- Off Cycle -------------------------------------------------------------------");
+ 
+  Serial.print("| IgnOrr count=");
+  Serial.print(_sensorOffCycleIgnOrrCount);
+
+  Serial.print("\t| IgnVer count=");
+  Serial.print(_sensorOffCycleIgnVerCount);
+
+  Serial.print("\t| InjOrr count=");
+  Serial.print(_sensorOffCycleInjOrrCount);
+
+  Serial.print("\t| InjVer count=");
+  Serial.print(_sensorOffCycleInjVerCount);
 
   Serial.println("\t|");
 
