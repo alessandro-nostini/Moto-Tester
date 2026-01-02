@@ -87,8 +87,8 @@ void Sensor_Setup()
   //
   // Interupt
   //
-  attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_IGN_ORR), Interrupt_IgnOrr, FALLING);
-  attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_IGN_VER), Interrupt_IgnVer, FALLING);
+  attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_IGN_ORR), Interrupt_IgnOrr, RISING);
+  attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_IGN_VER), Interrupt_IgnVer, RISING);
   attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_INJ_ORR), Interrupt_InjOrr, CHANGE);
   attachInterrupt(digitalPinToInterrupt(MKRCAN_IN_INJ_VER), Interrupt_InjVer, CHANGE);
 
@@ -122,8 +122,16 @@ void Interrupt_IgnOrr()
   // Controllo overflow(ogni 70 minuti)
   // Calcolo ciclo e set start
   //
-  if (now > _sensorStartIgnOrrMicrosec)
+  if (now > _sensorStartIgnOrrMicrosec && _sensorStartIgnOrrMicrosec > 0)
   {
+      //
+      // Maschero entro i 5 msec.
+      //
+      if (now - 5000 < _sensorStartIgnOrrMicrosec)
+        return;
+    //
+    // Calcolo ciclo
+    //
     _sensorCicleIgnOrrMicrosec = now - _sensorStartIgnOrrMicrosec;
     //
     // Calcolo riferimento e ritorna se in ciclo.
@@ -161,8 +169,16 @@ void Interrupt_IgnVer()
   // Controllo overflow (ogni 70 minuti)
   // Calcolo ciclo e set start
   //
-  if (now > _sensorStartIgnVerMicrosec)
+  if (now > _sensorStartIgnVerMicrosec && _sensorStartIgnVerMicrosec > 0)
   {
+          //
+      // Maschero entro i 5 msec.
+      //
+      if (now - 5000 < _sensorStartIgnVerMicrosec)
+        return;
+    //
+    // Calcolo ciclo
+    //
     _sensorCicleIgnVerMicrosec = now - _sensorStartIgnVerMicrosec;
     //
     // Calcolo riferimento e ritorna se in ciclo.
@@ -198,14 +214,14 @@ void Interrupt_InjOrr()
   //
   // Per iniezzione misuro i tempo di apertura
   //
-  if (status == LOW)
+  if (status == HIGH)
   {
     _sensorOnInjOrrMicrosec = now;
   }
   else
   {
     //
-    // HIGH status
+    // LOW status
     //
     _sensorOffInjOrrMicrosec = now; 
     //
@@ -220,7 +236,7 @@ void Interrupt_InjOrr()
     // Controllo overflow (ogni 70 minuti)
     // Calcolo ciclo e set start
     //
-    if (now > _sensorStartInjOrrMicrosec)
+    if (now > _sensorStartInjOrrMicrosec && _sensorStartInjOrrMicrosec > 0)
     {
       _sensorCicleInjOrrMicrosec = now - _sensorStartInjOrrMicrosec;
       //
@@ -231,8 +247,8 @@ void Interrupt_InjOrr()
       if (!onCicle)
         _sensorOffCycleInjOrrCount++;
     }
+    _sensorStartInjOrrMicrosec = now;
 
-    _sensorStartInjOrrMicrosec = now;    
   }
   //
   // Inc counter
@@ -254,14 +270,14 @@ void Interrupt_InjVer()
   //
   // Per iniezzione misuro i tempo di apertura
   //
-  if (status == LOW)
+  if (status == HIGH)
   {
     _sensorOnInjVerMicrosec = now;
   }
   else
   {
     //
-    // HIGH status
+    // LOW status
     //
     _sensorOffInjVerMicrosec = now; 
     //
@@ -276,7 +292,7 @@ void Interrupt_InjVer()
     // Controllo overflow(ogni 70 minuti)
     // Calcolo ciclo e set start
     //
-    if (now > _sensorStartInjVerMicrosec)
+    if (now > _sensorStartInjVerMicrosec && _sensorStartInjVerMicrosec > 0)
     {
       _sensorCicleInjVerMicrosec = now - _sensorStartInjVerMicrosec;
       //
@@ -435,29 +451,38 @@ void Sensor_Loop()
 
 }
 
+unsigned long FilterValue(unsigned long current, unsigned long input, int filter)
+{
+  //
+  // filter = 0 -> 9
+  //
+  // alpha = 0,99 -> 0.90
+  //
+  float alpha = 0.9 + ((9 - (filter % 10)) / 100);
+
+  return (1 - alpha) * input + alpha * current;
+}
 
 bool CalcoloCicloRiferimento(unsigned long valueMillisec)
 {
   //
-  // Microsecondi corrente
+  // Calcolo se è in ciclo
   //
-  unsigned long now = micros();
-  //
-  // Calcolo riferimento. Reset ogni ciclo e mezzo
-  //
-  if (_sensorCicleRefTimeMicrosec > (now - _sensorCicleRefValueMicrosec * 1.5))
-  {
-    _sensorCicleRefTimeMicrosec = now;
-    _sensorCicleRefValueMicrosec = valueMillisec;
-  }
+  bool onCycle;
+
+  if (_sensorCicleRefValueMicrosec == 0)
+    onCycle = true;
   else
-  {
-    _sensorCicleRefValueMicrosec = min(_sensorCicleRefValueMicrosec, valueMillisec);
-  }
+    onCycle = (valueMillisec < _sensorCicleRefValueMicrosec * 1.5);
+ 
+  //
+  // Aggiorno valore medio del ciclo
+  //
+  _sensorCicleRefValueMicrosec = FilterValue(_sensorCicleRefValueMicrosec, valueMillisec, 5);
   //
   // Ritorna true se in ciclo
   //
-  return (valueMillisec < _sensorCicleRefValueMicrosec * 1.5);
+  return onCycle;
 }
 
 
@@ -501,6 +526,9 @@ void sensorPrintDebug()
 
   Serial.print("\t| IgnInjVer usec=");
   Serial.print(_sensorDeltaIgnVerMicrosec);
+
+  Serial.print("\t| Cicle reference usec=");
+  Serial.print(_sensorCicleRefValueMicrosec);
 
   Serial.println("\t|");
 
