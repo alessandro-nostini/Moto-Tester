@@ -18,6 +18,7 @@ volatile unsigned long _displyTime = 0;
 volatile int _displyColumn = 0;
 
 const int DISPLAY_TRACK_TIME  = 1000;
+const int MASK_IRQ_MICROSEC  = 5000;
 //
 // CONST
 //
@@ -127,7 +128,7 @@ void Interrupt_IgnOrr()
       //
       // Maschero entro i 5 msec.
       //
-      if (now - 5000 < _sensorStartIgnOrrMicrosec)
+      if (now - MASK_IRQ_MICROSEC < _sensorStartIgnOrrMicrosec)
         return;
     //
     // Calcolo ciclo
@@ -141,14 +142,16 @@ void Interrupt_IgnOrr()
     if (!onCicle)
       _sensorOffCycleIgnOrrCount++;
   }
-  
+  //
+  // Set inizio spark
+  // 
   _sensorStartIgnOrrMicrosec = now;
   //
   // Calcolo delta Ign e fine Inj
   //
-  _sensorDeltaIgnOrrMicrosec = now - _sensorOffInjOrrMicrosec;
+  _sensorDeltaIgnOrrMicrosec = _sensorStartIgnOrrMicrosec - _sensorOffInjOrrMicrosec;
   //
-  // Inc status
+  // Inc counter
   //
   _sensorIrqIgnOrrCount++;
 }
@@ -174,7 +177,7 @@ void Interrupt_IgnVer()
           //
       // Maschero entro i 5 msec.
       //
-      if (now - 5000 < _sensorStartIgnVerMicrosec)
+      if (now - MASK_IRQ_MICROSEC < _sensorStartIgnVerMicrosec)
         return;
     //
     // Calcolo ciclo
@@ -188,14 +191,16 @@ void Interrupt_IgnVer()
     if (!onCicle)
       _sensorOffCycleIgnVerCount++;
   }
-
+  //
+  // Set inizio spark
+  //
   _sensorStartIgnVerMicrosec = now;
   //
   // Calcolo delta Ign e fine Inj
   //
-  _sensorDeltaIgnVerMicrosec = now - _sensorOffInjVerMicrosec;
+  _sensorDeltaIgnVerMicrosec = _sensorStartIgnVerMicrosec - _sensorOffInjVerMicrosec;
   //
-  // Inc status
+  // Inc counter
   //
   _sensorIrqIgnVerCount++;
 }
@@ -211,8 +216,9 @@ void Interrupt_InjOrr()
   //
   unsigned long now = micros();
   int status = digitalRead(MKRCAN_IN_INJ_ORR);
-  //
-  // Per iniezzione misuro i tempo di apertura
+
+  // #######################################
+  // Per iniezione misuro i tempo di apertura
   //
   if (status == HIGH)
   {
@@ -232,6 +238,13 @@ void Interrupt_InjOrr()
     {
       _sensorOpenInjOrrMicrosec = _sensorOffInjOrrMicrosec - _sensorOnInjOrrMicrosec;
     }
+  }
+
+  // #######################################
+  // Calcolo ciclo e set start
+  //
+  if (status == HIGH)
+  {
     //
     // Controllo overflow (ogni 70 minuti)
     // Calcolo ciclo e set start
@@ -247,10 +260,13 @@ void Interrupt_InjOrr()
       if (!onCicle)
         _sensorOffCycleInjOrrCount++;
     }
+    //
+    // Set start fuel
+    //
     _sensorStartInjOrrMicrosec = now;
-
   }
-  //
+
+  // #######################################
   // Inc counter
   //
   _sensorIrqInjOrrCount++;
@@ -267,8 +283,9 @@ void Interrupt_InjVer()
   //
   unsigned long now = micros();
   int status = digitalRead(MKRCAN_IN_INJ_VER);
-  //
-  // Per iniezzione misuro i tempo di apertura
+
+  // #######################################
+  // Per iniezione misuro i tempo di apertura
   //
   if (status == HIGH)
   {
@@ -288,9 +305,15 @@ void Interrupt_InjVer()
     {
       _sensorOpenInjVerMicrosec = _sensorOffInjVerMicrosec - _sensorOnInjVerMicrosec;
     }
+  }
+
+  // #######################################
+  // Calcolo ciclo e set start
+  //
+  if (status == HIGH)
+  {
     //
-    // Controllo overflow(ogni 70 minuti)
-    // Calcolo ciclo e set start
+    // Controllo overflow (ogni 70 minuti)
     //
     if (now > _sensorStartInjVerMicrosec && _sensorStartInjVerMicrosec > 0)
     {
@@ -303,10 +326,13 @@ void Interrupt_InjVer()
       if (!onCicle)
         _sensorOffCycleInjVerCount++;     
     }
-  
+    //
+    // Set start fuel
+    //  
     _sensorStartInjVerMicrosec = now;
   }
-  //
+
+  // #######################################
   // Inc counter
   //
   _sensorIrqInjVerCount++;
@@ -351,6 +377,11 @@ void Sensor_Loop()
   static int stOffCycleIgnVer = 0;
   static int stOffCycleInjOrr = 0;
   static int stOffCycleInjVer = 0;
+
+  static int stLastIrqIgnOrr = 0;
+  static int stLastIrqIgnVer = 0;
+  static int stLastIrqInjOrr = 0;
+  static int stLastIrqInjVer = 0;
   //
   // Esco se non inizializzato
   //
@@ -381,6 +412,21 @@ void Sensor_Loop()
     stOffCycleInjVer = _sensorOffCycleInjVerCount;
 
     //
+    // Calcolo se nell'ultimo secondo sono arrivati Irq
+    //
+    bool aliveIgnOrr = (_sensorIrqIgnOrrCount > stLastIrqIgnOrr);
+    stLastIrqIgnOrr = _sensorIrqIgnOrrCount;
+
+    bool aliveIgnVer = (_sensorIrqIgnVerCount > stLastIrqIgnVer);
+    stLastIrqIgnVer = _sensorIrqIgnVerCount;
+
+    bool aliveInjOrr = (_sensorIrqInjOrrCount > stLastIrqInjOrr);
+    stLastIrqInjOrr = _sensorIrqInjOrrCount;
+
+    bool aliveInjVer = (_sensorIrqInjVerCount > stLastIrqInjVer);
+    stLastIrqInjVer = _sensorIrqInjVerCount;
+
+    //
     // Draw display
     //
     MATRIX.beginDraw();
@@ -395,35 +441,68 @@ void Sensor_Loop()
 
     }
     //
+    // Barra del tempo di ciclo
+    //
+    int pixelCycleRef = _sensorCicleRefValueMicrosec / 10000;
+
+    for (int x = 0; x < 6; x++)
+    {
+      MATRIX.set(x, 1, x > pixelCycleRef ? 127 : 0,
+                       x > pixelCycleRef ? 127 : 0,
+                       x > pixelCycleRef ? 0 : 0);
+    }
+    //
+    // Barra del tempo di iniezione
+    //
+    int pixelOpenInj = max(_sensorOpenInjOrrMicrosec, _sensorOpenInjVerMicrosec) / 1000;
+
+    for (int x = 6; x < 12; x++)
+    {
+      MATRIX.set(x, 1, x > pixelOpenInj ? 0 : 0,
+                       x > pixelOpenInj ? 127 : 0,
+                       x > pixelOpenInj ? 127 : 0);
+    }
+
+    //
     // Tracce incrementali pallino VERDE, errore ROSSO
     //
     int prevPoint = _displyColumn == 0 ? 11 : _displyColumn - 1;
     uint8_t prevColorR = 0;
     uint8_t prevColorG = 0;
     uint8_t prevColorB = 0;
+
+    uint8_t currColorG = 0;
     //
     // Canale IgnOrr
     //
     prevColorR = offCycleIgnOrr ? 255 : 0;
     MATRIX.set(prevPoint, 3, prevColorR, prevColorG, prevColorB);
-    MATRIX.set(_displyColumn, 3, 0, 255, 0);
+
+    currColorG = aliveIgnOrr ? 255 : 0;
+    MATRIX.set(_displyColumn, 3, 0, currColorG, 0);
     //
     // Canale IgnVer
     //
     prevColorR = offCycleIgnVer ? 255 : 0;
     MATRIX.set(prevPoint, 4, prevColorR, prevColorG, prevColorB);
-    MATRIX.set(_displyColumn, 4, 0, 255, 0);
+
+    currColorG = aliveIgnVer ? 255 : 0;
+    MATRIX.set(_displyColumn, 4, 0, currColorG, 0);
     //
     // Canale InjOrr
     //
     prevColorR = offCycleInjOrr ? 255 : 0;
     MATRIX.set(prevPoint, 5, prevColorR, prevColorG, prevColorB);
-    MATRIX.set(_displyColumn, 5, 0, 255, 0);
+
+    currColorG = aliveInjOrr ? 255 : 0;
+    MATRIX.set(_displyColumn, 5, 0, currColorG, 0);
     //
     // Canale InjVer
     //
     prevColorR = offCycleInjVer ? 255 : 0;
     MATRIX.set(prevPoint, 6, prevColorR, prevColorG, prevColorB);
+
+    currColorG = aliveInjVer ? 255 : 0;
     MATRIX.set(_displyColumn, 6, 0, 255, 0);
 
     MATRIX.endDraw();
@@ -478,7 +557,8 @@ bool CalcoloCicloRiferimento(unsigned long valueMillisec)
   //
   // Aggiorno valore medio del ciclo
   //
-  _sensorCicleRefValueMicrosec = FilterValue(_sensorCicleRefValueMicrosec, valueMillisec, 5);
+  if (onCycle)
+    _sensorCicleRefValueMicrosec = FilterValue(_sensorCicleRefValueMicrosec, valueMillisec, 5);
   //
   // Ritorna true se in ciclo
   //
@@ -519,7 +599,7 @@ void sensorPrintDebug()
 
   Serial.println("\t|");
 
-  Serial.println("--- Delta Ign->Inj-----------------------------------------------------------------");
+  Serial.println("--- Delta Ign->Inj-------------------------------- Cycle Ref ----------------------");
   
   Serial.print("| IgnInjOrr usec=");
   Serial.print(_sensorDeltaIgnOrrMicrosec);
