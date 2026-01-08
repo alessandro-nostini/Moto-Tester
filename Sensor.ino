@@ -344,7 +344,11 @@ void Interrupt_InjVer()
 void Sensor_Loop()
 {
   //
-  // Test
+  // Esco se non inizializzato
+  //
+  if (! _sensorInitDone) exit;
+  //
+  // Simulazione di Test
   //
   if (DEBUG_TEST_SIM && (millis() - _sensorTestTime > 300))
   {
@@ -371,7 +375,7 @@ void Sensor_Loop()
   
   //
   // Valori mantenuti tra loop diversi
-  // Valori letti al loop precedente
+  //  letti al loop precedente per comparare se incrementati
   //
   static int stOffCycleIgnOrr = 0;
   static int stOffCycleIgnVer = 0;
@@ -382,10 +386,6 @@ void Sensor_Loop()
   static int stLastIrqIgnVer = 0;
   static int stLastIrqInjOrr = 0;
   static int stLastIrqInjVer = 0;
-  //
-  // Esco se non inizializzato
-  //
-  if (! _sensorInitDone) exit;
   //
   // Valutazione timer per attività
   //
@@ -447,9 +447,10 @@ void Sensor_Loop()
 
     for (int x = 0; x < 6; x++)
     {
-      MATRIX.set(x, 1, x > pixelCycleRef ? 127 : 0,
-                       x > pixelCycleRef ? 127 : 0,
-                       x > pixelCycleRef ? 0 : 0);
+      int soglia = x + 1;
+      MATRIX.set(x, 1, soglia > pixelCycleRef ? 0 : 127,
+                       soglia > pixelCycleRef ? 0 : 127,
+                       soglia > pixelCycleRef ? 0 : 0);
     }
     //
     // Barra del tempo di iniezione
@@ -458,13 +459,22 @@ void Sensor_Loop()
 
     for (int x = 6; x < 12; x++)
     {
-      MATRIX.set(x, 1, x > pixelOpenInj ? 0 : 0,
-                       x > pixelOpenInj ? 127 : 0,
-                       x > pixelOpenInj ? 127 : 0);
+      int soglia = ((x - 6) * 2) + 1;
+      MATRIX.set(x, 1, soglia > pixelOpenInj ? 0 : 0,
+                       soglia > pixelOpenInj ? 0 : 127,
+                       soglia > pixelOpenInj ? 0 : 127);
+    }
+
+    for (int x = 0; x < 12; x++)
+    {
+      int soglia = x + 1;
+      MATRIX.set(x, 2, soglia > pixelOpenInj ? 0 : 0,
+                       soglia > pixelOpenInj ? 0 : 127,
+                       soglia > pixelOpenInj ? 0 : 127);
     }
 
     //
-    // Tracce incrementali pallino VERDE, errore ROSSO
+    // Tracce incrementali pallino VERDE se alive, ROSSO se fuori ciclo
     //
     int prevPoint = _displyColumn == 0 ? 11 : _displyColumn - 1;
     uint8_t prevColorR = 0;
@@ -503,7 +513,7 @@ void Sensor_Loop()
     MATRIX.set(prevPoint, 6, prevColorR, prevColorG, prevColorB);
 
     currColorG = aliveInjVer ? 255 : 0;
-    MATRIX.set(_displyColumn, 6, 0, 255, 0);
+    MATRIX.set(_displyColumn, 6, 0, currColorG, 0);
 
     MATRIX.endDraw();
     //
@@ -553,12 +563,10 @@ bool CalcoloCicloRiferimento(unsigned long valueMillisec)
     onCycle = true;
   else
     onCycle = (valueMillisec < _sensorCicleRefValueMicrosec * 1.5);
- 
   //
   // Aggiorno valore medio del ciclo
   //
-  if (onCycle)
-    _sensorCicleRefValueMicrosec = FilterValue(_sensorCicleRefValueMicrosec, valueMillisec, 5);
+  _sensorCicleRefValueMicrosec = FilterValue(_sensorCicleRefValueMicrosec, valueMillisec, 5);
   //
   // Ritorna true se in ciclo
   //
