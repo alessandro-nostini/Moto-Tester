@@ -36,11 +36,13 @@ const int MKRCAN_IN_INJ_VER = 5;
 //
 volatile unsigned long _sensorStartIgnOrrMicrosec = 0;
 volatile unsigned long _sensorCicleIgnOrrMicrosec = 0;
-volatile long _sensorDeltaIgnOrrMicrosec = 0;
+volatile long _sensorDeltaOnIgnOrrMicrosec = 0;
+volatile long _sensorDeltaOffIgnOrrMicrosec = 0;
 
 volatile unsigned long _sensorStartIgnVerMicrosec = 0;
 volatile unsigned long _sensorCicleIgnVerMicrosec = 0;
-volatile long _sensorDeltaIgnVerMicrosec = 0;
+volatile long _sensorDeltaOnIgnVerMicrosec = 0;
+volatile long _sensorDeltaOffIgnVerMicrosec = 0;
 
 volatile unsigned long _sensorStartInjOrrMicrosec = 0;
 volatile unsigned long _sensorCicleInjOrrMicrosec = 0;
@@ -147,9 +149,12 @@ void Interrupt_IgnOrr()
   // 
   _sensorStartIgnOrrMicrosec = now;
   //
-  // Calcolo delta Ign e fine Inj
+  // Calcolo delta Ign e Inj
   //
-  _sensorDeltaIgnOrrMicrosec = _sensorStartIgnOrrMicrosec - _sensorOffInjOrrMicrosec;
+  _sensorDeltaOnIgnOrrMicrosec = FilterValue(_sensorDeltaOnIgnOrrMicrosec, 
+                                             _sensorStartIgnOrrMicrosec - _sensorOnInjOrrMicrosec, 5);
+  _sensorDeltaOffIgnOrrMicrosec = FilterValue(_sensorDeltaOffIgnOrrMicrosec,
+                                              _sensorStartIgnOrrMicrosec - _sensorOffInjOrrMicrosec, 5);
   //
   // Inc counter
   //
@@ -196,9 +201,12 @@ void Interrupt_IgnVer()
   //
   _sensorStartIgnVerMicrosec = now;
   //
-  // Calcolo delta Ign e fine Inj
+  // Calcolo delta Ign e Inj
   //
-  _sensorDeltaIgnVerMicrosec = _sensorStartIgnVerMicrosec - _sensorOffInjVerMicrosec;
+  _sensorDeltaOnIgnVerMicrosec = FilterValue(_sensorDeltaOnIgnVerMicrosec,
+                                             _sensorStartIgnVerMicrosec - _sensorOnInjVerMicrosec, 5);
+  _sensorDeltaOffIgnVerMicrosec = FilterValue(_sensorDeltaOffIgnVerMicrosec,
+                                              _sensorStartIgnVerMicrosec - _sensorOffInjVerMicrosec,5);
   //
   // Inc counter
   //
@@ -597,7 +605,7 @@ void sensorPrintDebug()
 
   Serial.println("\t|");
 
-  Serial.println("--- Open -------------------------------------------------------------------------");
+  Serial.println("--- Open --------------------------------------- Cycle Ref ------------------------");
   
   Serial.print("| InjOrr usec=");
   Serial.print(_sensorOpenInjOrrMicrosec);
@@ -605,22 +613,44 @@ void sensorPrintDebug()
   Serial.print("\t| InjVer usec=");
   Serial.print(_sensorOpenInjVerMicrosec);
 
-  Serial.println("\t|");
-
-  Serial.println("--- Delta Ign->Inj-------------------------------- Cycle Ref ----------------------");
-  
-  Serial.print("| IgnInjOrr usec=");
-  Serial.print(_sensorDeltaIgnOrrMicrosec);
-
-  Serial.print("\t| IgnInjVer usec=");
-  Serial.print(_sensorDeltaIgnVerMicrosec);
-
   Serial.print("\t| Cicle reference usec=");
   Serial.print(_sensorCicleRefValueMicrosec);
 
   Serial.println("\t|");
 
- Serial.println("--- Off Cycle -------------------------------------------------------------------");
+  Serial.println("--- Delta Ign->Inj----------------------------------------------------------------");
+  
+  Serial.print("| IgnInjOnOrr usec=");
+  Serial.print(_sensorDeltaOnIgnOrrMicrosec);
+
+  Serial.print("\t| IgnInjOffOrr usec=");
+  Serial.print(_sensorDeltaOffIgnOrrMicrosec);
+
+  Serial.print("\t| IgnInjOnVer usec=");
+  Serial.print(_sensorDeltaOnIgnVerMicrosec);
+
+  Serial.print("\t| IgnInjOffVer usec=");
+  Serial.print(_sensorDeltaOffIgnVerMicrosec);
+
+  Serial.println("\t|");
+
+  Serial.println("--- Gradi Ign->Inj----------------------------------------------------------------");
+
+  Serial.print("| IgnInjOnOrr gradi=");
+  Serial.print((360 * _sensorDeltaOnIgnOrrMicrosec) / _sensorCicleRefValueMicrosec);
+ 
+  Serial.print("\t| IgnInjOffOrr gradi=");
+  Serial.print((360 * _sensorDeltaOffIgnOrrMicrosec) / _sensorCicleRefValueMicrosec);
+
+  Serial.print("\t| IgnInjOnVer gradi=");
+  Serial.print((360 * _sensorDeltaOnIgnVerMicrosec) / _sensorCicleRefValueMicrosec);
+
+  Serial.print("\t| IgnInjOffVer gradi=");
+  Serial.print((360 * _sensorDeltaOffIgnVerMicrosec) / _sensorCicleRefValueMicrosec);
+
+  Serial.println("\t|");
+
+  Serial.println("--- Off Cycle -------------------------------------------------------------------");
  
   Serial.print("| IgnOrr count=");
   Serial.print(_sensorOffCycleIgnOrrCount);
